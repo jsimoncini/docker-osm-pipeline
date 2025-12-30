@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgis/postgis:15-3.3
+    environment:
+      POSTGRES_DB: osm
+      POSTGRES_USER: osmuser
+      POSTGRES_PASSWORD: osmpassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U osmuser"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  osm-pipeline:
+    build: .
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: osm
+      POSTGRES_USER: osmuser
+      POSTGRES_PASSWORD: osmpassword
+      # Use Scaleway S3 for faster downloads (recommended)
+      OSM_DATA_URL: https://osm.s3.fr-par.scw.cloud/pbf/europe/monaco-latest.osm.pbf
+      # Or use Geofabrik:
+      # OSM_DATA_URL: https://download.geofabrik.de/europe/monaco-latest.osm.pbf
+      OSM_DATA_FILE: /data/monaco.osm.pbf
+      OSM2PGSQL_CACHE: 2048
+      OSM2PGSQL_NUM_PROCESSES: 4
+    volumes:
+      - ./data:/data
+      - ./scripts:/scripts
+    command: /scripts/run-pipeline.sh
+
+volumes:
+  postgres_data:

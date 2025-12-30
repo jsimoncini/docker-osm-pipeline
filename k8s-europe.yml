@@ -1,0 +1,408 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: osm-europe-rebuild
+  namespace: osm
+spec:
+  backoffLimit: 2
+
+  # Europe complète = très probablement > 12h selon ton infra.
+  # Mets large, sinon tu vas juste tuer ton job au milieu.
+  activeDeadlineSeconds: 172800 # 48h
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: osm-europe-rebuild
+    spec:
+      nodeSelector:
+        k8s.scaleway.com/pool: production
+
+      restartPolicy: Never
+      automountServiceAccountToken: false
+      terminationGracePeriodSeconds: 30
+
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+
+      volumes:
+        - name: work
+          persistentVolumeClaim:
+            claimName: osm-work-pvc
+        - name: osm-style
+          configMap:
+            name: osm-flex-addresses
+        - name: osm-sql
+          configMap:
+            name: osm-refresh-sql
+
+      initContainers:
+        - name: europe-sequential-runner
+          image: ghcr.io/ixys/osm-pipeline:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - secretRef:
+                name: osm-sync-secrets
+          env:
+            - name: PGOPTIONS
+              value: >-
+                -c synchronous_commit=off
+                -c statement_timeout=0
+                -c lock_timeout=0
+                -c search_path=osm,public
+
+            # Base URL de tes PBF (adapte si ton prefix diffère)
+            - name: PBF_BASE_URL
+              value: "https://osm.s3.fr-par.scw.cloud/pbf/europe"
+
+            # Liste newline-separated (lisible, diffable)
+            - name: COUNTRIES
+              value: |
+                albania
+                andorra
+                austria
+                azores
+                belarus
+                belgium
+                bosnia-herzegovina
+                bulgaria
+                croatia
+                cyprus
+                czech-republic
+                denmark
+                estonia
+                faroe-islands
+                finland
+                france
+                georgia
+                germany
+                greece
+                guernsey-jersey
+                hungary
+                iceland
+                ireland-and-northern-ireland
+                isle-of-man
+                italy
+                kosovo
+                latvia
+                liechtenstein
+                lithuania
+                luxembourg
+                macedonia
+                malta
+                moldova
+                monaco
+                montenegro
+                netherlands
+                norway
+                poland
+                portugal
+                romania
+                serbia
+                slovakia
+                slovenia
+                spain
+                sweden
+                switzerland
+                turkey
+                ukraine
+                united-kingdom
+
+            # Téléchargement en N parts si Accept-Ranges OK
+            - name: DL_PARTS
+              value: "8"
+
+            # Comportement sur erreur : "1" = stop au 1er pays qui échoue
+            - name: FAIL_FAST
+              value: "1"
+
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -euo pipefail
+              umask 0002
+
+              mkdir -p /work/tmp /work/checkpoints
+
+              RUN_TS="$(date -Iseconds)"
+              DONE_FILE="/work/checkpoints/europe.done.${RUN_TS}.txt"
+              SKIP_FILE="/work/checkpoints/europe.done.latest.txt"
+
+              echo "Run timestamp: $RUN_TS"
+              echo "Checkpoint file: $DONE_FILE"
+              touch "$DONE_FILE"
+              touch "$SKIP_FILE"
+
+              # --- 1) Prépare la DB (une seule fois) ---
+              echo "[db] Preparing schema + base tables..."
+              psql -X -v ON_ERROR_STOP=1 <<'SQL'
+              CREATE SCHEMA IF NOT EXISTS osm;
+
+              \set ON_ERROR_STOP off
+              CREATE EXTENSION IF NOT EXISTS postgis;
+              CREATE EXTENSION IF NOT EXISTS unaccent;
+              \set ON_ERROR_STOP on
+
+              CREATE OR REPLACE FUNCTION osm.unaccent_safe(input text)
+              RETURNS text
+              LANGUAGE plpgsql
+              AS $fn$
+              DECLARE
+                out text;
+              BEGIN
+                IF to_regproc('unaccent(text)') IS NOT NULL THEN
+                  EXECUTE 'SELECT unaccent($1)' INTO out USING input;
+                  RETURN out;
+                END IF;
+                RETURN input;
+              END;
+              $fn$;
+
+              CREATE TABLE IF NOT EXISTS osm.osm_addresses (
+                id bigserial PRIMARY KEY,
+                dataset text NOT NULL,
+                osm_type char(1) NOT NULL,
+                osm_id bigint NOT NULL,
+                house_number text NULL,
+                street text NULL,
+                unit text NULL,
+                city text NULL,
+                postcode text NULL,
+                place text NULL,
+                lon double precision NULL,
+                lat double precision NULL,
+                label text NULL,
+                label_search text NULL,
+                created_at timestamptz NULL,
+                updated_at timestamptz NULL
+              );
+
+              CREATE UNIQUE INDEX IF NOT EXISTS osm_addresses_uq
+                ON osm.osm_addresses (dataset, osm_type, osm_id);
+
+              CREATE INDEX IF NOT EXISTS osm_addresses_dataset_idx
+                ON osm.osm_addresses (dataset);
+              SQL
+
+              # --- Helpers ---
+              already_done() {
+                grep -qx "$1" "$SKIP_FILE" 2>/dev/null
+              }
+
+              mark_done() {
+                echo "$1" >> "$DONE_FILE"
+                echo "$1" >> "$SKIP_FILE"
+              }
+
+              download_pbf() {
+                name="$1"
+                url="$2"
+                out="$3"
+                n="${DL_PARTS:-8}"
+                tmpdir="/work/tmp/osm-parts-${name}"
+
+                echo "[dl:$name] Cleaning old artifacts..."
+                rm -f "$out"
+                rm -rf "$tmpdir"
+                mkdir -p "$tmpdir"
+
+                echo "[dl:$name] HEAD $url"
+                headers="$(curl -sI -L "$url" | tr -d '\r')"
+                size="$(printf "%s\n" "$headers" | awk -F': ' 'tolower($1)=="content-length"{print $2}' | tail -n1)"
+                ranges="$(printf "%s\n" "$headers" | \
+                  awk -F': ' 'tolower($1)=="accept-ranges"{print tolower($2)}' | tail -n1)"
+                etag="$(printf "%s\n" "$headers" | awk -F': ' 'tolower($1)=="etag"{print $2}' | tail -n1)"
+                lm="$(printf "%s\n" "$headers" | awk -F': ' 'tolower($1)=="last-modified"{print $2}' | tail -n1)"
+
+                echo "[dl:$name] Accept-Ranges=${ranges:-n/a} Content-Length=${size:-n/a}"
+
+                download_single() {
+                  echo "[dl:$name] Single-connection download..."
+                  rm -f "$out"
+                  curl -L --fail --show-error \
+                    --http2 \
+                    --retry 10 --retry-all-errors --retry-connrefused --retry-delay 2 \
+                    --connect-timeout 10 --speed-time 30 \
+                    -o "$out" \
+                    "$url"
+                }
+
+                if [ -n "${size:-}" ] && [ "${ranges:-}" = "bytes" ]; then
+                  echo "[dl:$name] Ranges OK. Downloading in $n parts."
+                  chunk=$(( (size + n - 1) / n ))
+
+                  export url size chunk tmpdir etag lm out name
+
+                  if ! seq 0 $((n-1)) | xargs -P "$n" -I{} sh -eu -c '
+                    i="$1"
+                    start=$((i * chunk))
+                    end=$((start + chunk - 1))
+                    if [ "$end" -ge "$size" ]; then end=$((size - 1)); fi
+
+                    part="$tmpdir/part.$i"
+                    echo "[dl:$name] Part $i: bytes ${start}-${end}"
+
+                    code="$(curl -sS -L --fail --show-error \
+                      --http2 \
+                      --retry 10 --retry-all-errors --retry-connrefused --retry-delay 2 \
+                      --connect-timeout 10 --speed-time 30 \
+                      ${etag:+-H "If-Match: $etag"} \
+                      ${lm:+-H "If-Unmodified-Since: $lm"} \
+                      -w "%{http_code}" \
+                      --range "${start}-${end}" \
+                      -o "$part" \
+                      "$url")"
+
+                    [ "$code" = "206" ] || { echo "[dl:$name] ERROR: expected 206, got $code (part $i)"; exit 1; }
+                  ' _ {} ; then
+                    echo "[dl:$name] Parallel ranges failed. Fallback to single."
+                    rm -rf "$tmpdir"
+                    download_single
+                  else
+                    echo "[dl:$name] Assembling parts..."
+                    : > "$out"
+                    for i in $(seq 0 $((n-1))); do
+                      [ -s "$tmpdir/part.$i" ] || { echo "[dl:$name] Missing/empty part $i"; exit 1; }
+                      cat "$tmpdir/part.$i" >> "$out"
+                    done
+                    rm -rf "$tmpdir"
+                  fi
+                else
+                  echo "[dl:$name] No ranges/size. Fallback single."
+                  download_single
+                fi
+
+                echo "[dl:$name] Downloaded: $(ls -lh "$out")"
+                if [ -n "${size:-}" ]; then
+                  actual="$(stat -c '%s' "$out" 2>/dev/null || wc -c < "$out")"
+                  [ "$actual" = "$size" ] || \
+                    { echo "[dl:$name] ERROR: size mismatch expected=$size actual=$actual"; exit 1; }
+                  echo "[dl:$name] Size OK ($actual bytes)."
+                fi
+              }
+
+              run_one_country() {
+                name="$1"
+
+                if already_done "$name"; then
+                  echo "[skip] $name already processed (checkpoint)."
+                  return 0
+                fi
+
+                dataset="geofabrik:${name}-latest@${RUN_TS}"
+                url="${PBF_BASE_URL}/${name}-latest.osm.pbf"
+                pbf="/work/${name}-latest.osm.pbf"
+                flat="/work/flat-nodes-${name}.bin"
+
+                echo "=============================="
+                echo "[country] $name"
+                echo "[dataset] $dataset"
+                echo "[url]     $url"
+                echo "=============================="
+
+                # Nettoyage staging avant import (au cas où un run précédent a laissé des miettes)
+                psql -X -v ON_ERROR_STOP=1 <<SQL
+                DROP TABLE IF EXISTS osm.osm_addr_point CASCADE;
+                DROP TABLE IF EXISTS osm.osm_addr_area CASCADE;
+              SQL
+
+                download_pbf "$name" "$url" "$pbf"
+
+                echo "[osm2pgsql:$name] Import..."
+                rm -f "$flat"
+                osm2pgsql \
+                  --create \
+                  --slim \
+                  --drop \
+                  --output=flex \
+                  --style=/style/osm-flex-addresses.lua \
+                  --host="$PGHOST" \
+                  --port="$PGPORT" \
+                  --database="$PGDATABASE" \
+                  --username="$PGUSER" \
+                  --cache="12000" \
+                  --number-processes="3" \
+                  --flat-nodes="$flat" \
+                  "$pbf"
+
+                rm -f "$pbf"
+
+                echo "[sql:$name] Refresh unified table..."
+                psql -X -v ON_ERROR_STOP=1 -v dataset="$dataset" -f /sql/refresh_osm_addresses.sql
+
+                rm -f "$flat"
+
+                mark_done "$name"
+                echo "[ok] $name done."
+              }
+
+              # --- 2) Boucle séquentielle ---
+              echo "[run] Countries count: $(printf "%s\n" "$COUNTRIES" | sed '/^\s*$/d' | wc -l | tr -d ' ')"
+              echo "[run] FAIL_FAST=${FAIL_FAST:-1}"
+
+              failed=0
+              while IFS= read -r name; do
+                name="$(echo "$name" | xargs || true)"
+                [ -n "$name" ] || continue
+
+                if ! run_one_country "$name"; then
+                  echo "[err] Country failed: $name"
+                  failed=1
+                  [ "${FAIL_FAST:-1}" = "1" ] && exit 1
+                fi
+              done <<EOF
+              $COUNTRIES
+              EOF
+
+              [ "$failed" -eq 0 ] || exit 1
+              echo "[done] All countries processed."
+
+          volumeMounts:
+            - name: work
+              mountPath: /work
+            - name: osm-style
+              mountPath: /style
+            - name: osm-sql
+              mountPath: /sql
+          resources:
+            requests:
+              cpu: "2"
+              memory: "12Gi"
+              ephemeral-storage: "2Gi"
+            limits:
+              cpu: "8"
+              memory: "24Gi"
+              ephemeral-storage: "8Gi"
+
+      containers:
+        - name: done
+          image: busybox:1.36
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+          command: ["sh", "-c"]
+          args:
+            - |
+              set -eu
+              echo "OSM Europe rebuild job completed"
+          resources:
+            requests:
+              cpu: "10m"
+              memory: "16Mi"
+            limits:
+              cpu: "100m"
+              memory: "64Mi"
