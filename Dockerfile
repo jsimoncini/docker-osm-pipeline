@@ -1,14 +1,15 @@
-FROM iboates/osm2pgsql:latest
+FROM iboates/osm2pgsql:2.2.0
 
 USER root
 
-# Debian/Ubuntu base en général
+# Debian/Ubuntu base - install required packages
+# hadolint ignore=DL3008
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl ca-certificates postgresql-client coreutils \
   && rm -rf /var/lib/apt/lists/*
 
-# Revenir à un user non-root si l'image le permet, sinon tu restes root
-# (et tu relies à runAsUser=1000 côté K8S)
+# Switch back to non-root user if the image allows, otherwise stay root
+# (and use runAsUser=1000 on K8S side)
 USER 1000:1000
 
 ENTRYPOINT ["/bin/sh", "-c"]
