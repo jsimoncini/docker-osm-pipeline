@@ -153,14 +153,8 @@ spec:
         volumeMounts:
         - name: data
           mountPath: /data
-        - name: scripts
-          mountPath: /scripts
       restartPolicy: Never
       volumes:
       - name: data
         emptyDir: {}
-      - name: scripts
-        configMap:
-          name: osm-scripts
-          defaultMode: 0755
   backoffLimit: 3

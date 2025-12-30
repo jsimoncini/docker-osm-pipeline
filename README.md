@@ -339,7 +339,7 @@ volumes:
 
 ## Kubernetes Manifests
 
-The repository includes two Kubernetes manifests:
+The repository includes three Kubernetes manifests:
 
 ### 1. k8s-manifest.yml
 
@@ -354,13 +354,45 @@ Deploy with:
 kubectl apply -f k8s-manifest.yml
 ```
 
-### 2. k8s-cronjob-europe.yml
+### 2. k8s-europe.yml
+
+One-time Job for manual European data rebuild (all 47 countries):
+
+**Features:**
+- **Coverage**: All 47 European countries from Scaleway S3
+- **Smart Downloads**: Parallel 8-part downloads with range requests from Scaleway S3
+- **Checkpoint System**: Resumes from last successful country on failure
+- **Resource Limits**: 12Gi memory, 8 CPUs max, with proper requests/limits
+- **Database Schema**: Automatic creation of OSM addresses table with indexes
+- **Security**: Runs as non-root (UID 1000), drops all capabilities, seccomp profile
+- **Duration**: Up to 48h allowed for complete Europe rebuild
+
+**Use Cases:**
+- Manual one-time import of all European countries
+- Testing the import pipeline before enabling the CronJob
+- Recovery after errors or system issues
+
+Deploy manually:
+```bash
+kubectl apply -f k8s-europe.yml
+```
+
+Monitor progress:
+```bash
+# Watch job status
+kubectl get job osm-europe-rebuild -n osm -w
+
+# View logs
+kubectl logs -n osm -l app.kubernetes.io/name=osm-europe-rebuild -f --tail=100
+```
+
+### 3. k8s-cronjob-europe.yml
 
 Production-grade CronJob for automated European data rebuilds:
 
 **Features:**
 - **Schedule**: Weekly on Sundays (8th-16th) at 1 AM Paris time
-- **Coverage**: All 47 European countries from Geofabrik
+- **Coverage**: All 47 European countries from Scaleway S3
 - **Smart Downloads**: Parallel 8-part downloads with range requests
 - **Checkpoint System**: Resumes from last successful country on failure
 - **Resource Limits**: 12Gi memory, 8 CPUs max, with proper requests/limits
