@@ -52,6 +52,9 @@ jobs:
   build-and-test:
     name: Build and Test
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     needs: lint
     steps:
       - name: Checkout code
@@ -95,7 +98,7 @@ jobs:
           echo "✓ All tests passed"
 
       - name: Run vulnerability scan
-        uses: aquasecurity/trivy-action@master
+       uses: aquasecurity/trivy-action@master
         with:
           image-ref: osm-pipeline:test
           format: 'sarif'
@@ -104,7 +107,7 @@ jobs:
 
       - name: Upload Trivy results to GitHub Security
         uses: github/codeql-action/upload-sarif@v4
-        if: always()
+        if: ${{ always() && (github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork) }}
         with:
           sarif_file: 'trivy-results.sarif'
 
