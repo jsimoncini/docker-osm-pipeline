@@ -13,10 +13,16 @@ if [ -z "$URL" ]; then
     exit 1
 fi
 
+if [ -z "$OUTPUT" ]; then
+    echo "Error: Output file not specified"
+    echo "Usage: $0 <url> <output-file>"
+    exit 1
+fi
+
 echo "Downloading OSM data from: $URL"
 echo "Output file: $OUTPUT"
 
-curl -L -o "$OUTPUT" "$URL"
+curl -L --fail --show-error --max-time 7200 --retry 3 --retry-delay 5 -o "$OUTPUT" "$URL"
 
 echo "Download complete: $OUTPUT"
 ls -lh "$OUTPUT"

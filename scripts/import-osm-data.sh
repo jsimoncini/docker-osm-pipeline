@@ -9,6 +9,7 @@ DB_HOST="${POSTGRES_HOST:-localhost}"
 DB_PORT="${POSTGRES_PORT:-5432}"
 DB_NAME="${POSTGRES_DB:-osm}"
 DB_USER="${POSTGRES_USER:-osmuser}"
+DB_PASS="${POSTGRES_PASSWORD:-}"
 CACHE="${OSM2PGSQL_CACHE:-2048}"
 PROCS="${OSM2PGSQL_NUM_PROCESSES:-4}"
 STYLE="${OSM2PGSQL_STYLE:-default}"
@@ -31,13 +32,14 @@ echo "Processes: $PROCS"
 
 # Wait for PostgreSQL to be ready
 echo "Waiting for PostgreSQL..."
+export PGPASSWORD="$DB_PASS"
 until pg_isready -h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER"; do
     echo "PostgreSQL is unavailable - sleeping"
     sleep 2
 done
 echo "PostgreSQL is ready"
 
-# Run osm2pgsql
+# Run osm2pgsql with password from environment
 osm2pgsql \
     --create \
     --slim \

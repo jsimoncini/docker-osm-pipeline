@@ -42,9 +42,19 @@ POSTGRES_DB=osm
 POSTGRES_USER=osmuser
 POSTGRES_PASSWORD=osmpassword
 
+# Choose your data source:
+# Option 1: Geofabrik (default)
 OSM_DATA_URL=https://download.geofabrik.de/europe/france-latest.osm.pbf
+
+# Option 2: Scaleway S3 (faster for European regions, recommended)
+# OSM_DATA_URL=https://osm.s3.fr-par.scw.cloud/pbf/europe/france-latest.osm.pbf
+
 OSM_DATA_FILE=data.osm.pbf
 ```
+
+**Data Sources:**
+- **Geofabrik**: Official OSM extracts, updated daily
+- **Scaleway S3**: High-performance mirror hosted on Scaleway infrastructure, optimized for European regions with faster download speeds
 
 ### 2. Build the Docker Image
 
@@ -199,6 +209,80 @@ Runs the complete pipeline (download + import).
 ./scripts/run-pipeline.sh
 ```
 
+## OSM Data Sources
+
+The pipeline supports multiple data sources for OpenStreetMap data:
+
+### 1. Geofabrik (Official)
+
+The official OSM extract service, updated daily:
+
+```bash
+# Example URLs
+https://download.geofabrik.de/europe/france-latest.osm.pbf
+https://download.geofabrik.de/europe/germany-latest.osm.pbf
+https://download.geofabrik.de/north-america/us-latest.osm.pbf
+```
+
+**Pros:**
+- Official and trusted source
+- Wide geographic coverage worldwide
+- Daily updates
+
+**Cons:**
+- Can be slower depending on your location
+- Limited bandwidth during peak times
+
+Browse available extracts: https://download.geofabrik.de/
+
+### 2. Scaleway S3 (Recommended for Europe)
+
+High-performance OSM data mirror hosted on Scaleway infrastructure:
+
+```bash
+# Example URLs
+https://osm.s3.fr-par.scw.cloud/pbf/europe/france-latest.osm.pbf
+https://osm.s3.fr-par.scw.cloud/pbf/europe/germany-latest.osm.pbf
+https://osm.s3.fr-par.scw.cloud/pbf/europe/albania-latest.osm.pbf
+```
+
+**Pros:**
+- Very fast downloads (especially in European regions)
+- High bandwidth and low latency
+- Supports HTTP range requests for parallel downloads
+- Used by the production CronJob for optimal performance
+
+**Cons:**
+- Primarily optimized for European data
+- May have different update schedules than Geofabrik
+
+**Available regions:**
+- Europe: `https://osm.s3.fr-par.scw.cloud/pbf/europe/{country}-latest.osm.pbf`
+- See k8s-cronjob-europe.yml for the complete list of available European countries
+
+### Choosing a Data Source
+
+For development and testing:
+```bash
+# Small extract (Monaco) from Geofabrik
+OSM_DATA_URL=https://download.geofabrik.de/europe/monaco-latest.osm.pbf
+
+# Or from Scaleway
+OSM_DATA_URL=https://osm.s3.fr-par.scw.cloud/pbf/europe/monaco-latest.osm.pbf
+```
+
+For production (European regions):
+```bash
+# Use Scaleway S3 for best performance
+OSM_DATA_URL=https://osm.s3.fr-par.scw.cloud/pbf/europe/france-latest.osm.pbf
+```
+
+For production (other regions):
+```bash
+# Use Geofabrik for worldwide coverage
+OSM_DATA_URL=https://download.geofabrik.de/north-america/us-latest.osm.pbf
+```
+
 ## Docker Image Details
 
 The Dockerfile is based on `iboates/osm2pgsql:latest` and includes:
@@ -239,7 +323,10 @@ services:
       POSTGRES_DB: osm
       POSTGRES_USER: osmuser
       POSTGRES_PASSWORD: osmpassword
-      OSM_DATA_URL: https://download.geofabrik.de/europe/monaco-latest.osm.pbf
+      # Use Scaleway S3 for faster downloads (recommended)
+      OSM_DATA_URL: https://osm.s3.fr-par.scw.cloud/pbf/europe/monaco-latest.osm.pbf
+      # Or use Geofabrik:
+      # OSM_DATA_URL: https://download.geofabrik.de/europe/monaco-latest.osm.pbf
       OSM_DATA_FILE: /data/monaco.osm.pbf
     volumes:
       - ./data:/data

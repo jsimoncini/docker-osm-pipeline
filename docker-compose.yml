@@ -28,7 +28,10 @@ services:
       POSTGRES_DB: osm
       POSTGRES_USER: osmuser
       POSTGRES_PASSWORD: osmpassword
-      OSM_DATA_URL: https://download.geofabrik.de/europe/monaco-latest.osm.pbf
+      # Use Scaleway S3 for faster downloads (recommended)
+      OSM_DATA_URL: https://osm.s3.fr-par.scw.cloud/pbf/europe/monaco-latest.osm.pbf
+      # Or use Geofabrik:
+      # OSM_DATA_URL: https://download.geofabrik.de/europe/monaco-latest.osm.pbf
       OSM_DATA_FILE: /data/monaco.osm.pbf
       OSM2PGSQL_CACHE: 2048
       OSM2PGSQL_NUM_PROCESSES: 4
