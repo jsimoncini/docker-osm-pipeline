@@ -12,11 +12,11 @@ metadata:
 type: Opaque
 stringData:
   # Postgres managé (DOIT supporter PostGIS si tu utilises osm2pgsql comme ci-dessous)
-  PGHOST: "xx.xx.xx.xx"
-  PGPORT: "xxxx"
+  PGHOST: "REPLACE_WITH_YOUR_POSTGRES_HOST"
+  PGPORT: "5432"
   PGDATABASE: "osm"
-  PGUSER: "osm"
-  PGPASSWORD: "xxxx"
+  PGUSER: "REPLACE_WITH_YOUR_POSTGRES_USER"
+  PGPASSWORD: "REPLACE_WITH_YOUR_POSTGRES_PASSWORD"
   PGSSLMODE: "require"
   PGCONNECT_TIMEOUT: "10"
   PGKEEPALIVES: "1"
