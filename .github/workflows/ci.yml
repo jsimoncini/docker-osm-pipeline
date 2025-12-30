@@ -98,7 +98,7 @@ jobs:
           echo "✓ All tests passed"
 
       - name: Run vulnerability scan
-       uses: aquasecurity/trivy-action@master
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: osm-pipeline:test
           format: 'sarif'
