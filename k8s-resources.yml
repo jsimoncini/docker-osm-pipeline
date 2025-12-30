@@ -177,7 +177,7 @@ data:
       ),
       label_search = trim(
         regexp_replace(
-          lower(unaccent(
+          lower(osm.unaccent_safe(
             concat_ws(' ',
               NULLIF(house_number,''),
               NULLIF(street,''),
