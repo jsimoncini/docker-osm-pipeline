@@ -11,8 +11,8 @@ This project provides a complete scaffold for an OSM data processing pipeline th
 
 ## Features
 
-- Based on `iboates/osm2pgsql:latest` Docker image
-- Includes all necessary dependencies (curl, PostgreSQL client, coreutils)
+- Based on `iboates/osm2pgsql:2.2.0` Docker image (Alpine Linux)
+- Includes PostgreSQL client for database operations
 - Runs as non-root user (UID 1000) for security
 - Ready for Kubernetes deployment
 - Complete set of processing scripts
@@ -285,14 +285,11 @@ OSM_DATA_URL=https://download.geofabrik.de/north-america/us-latest.osm.pbf
 
 ## Docker Image Details
 
-The Dockerfile is based on `iboates/osm2pgsql:latest` and includes:
+The Dockerfile is based on `iboates/osm2pgsql:2.2.0` (Alpine Linux) and includes:
 
-- **Base Image**: `iboates/osm2pgsql:latest` (includes osm2pgsql)
+- **Base Image**: `iboates/osm2pgsql:2.2.0` (includes osm2pgsql, curl, and coreutils)
 - **Additional Packages**:
-  - `curl`: For downloading OSM data
-  - `ca-certificates`: For HTTPS support
   - `postgresql-client`: For database operations
-  - `coreutils`: Standard utilities
 - **Security**: Runs as user 1000:1000 (non-root)
 - **Entrypoint**: `/bin/sh -c` for flexible command execution
 
