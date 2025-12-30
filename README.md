@@ -85,7 +85,39 @@ docker-compose up
 
 #### Using Kubernetes
 
-Deploy with the following manifest (adjust as needed):
+##### Simple Job Deployment
+
+Deploy a one-time import job:
+
+```bash
+kubectl apply -f k8s-manifest.yml
+```
+
+See `k8s-manifest.yml` for the complete example manifest.
+
+##### Production CronJob for Europe Rebuild
+
+For production use with automatic weekly rebuilds of all European countries:
+
+```bash
+kubectl apply -f k8s-cronjob-europe.yml
+```
+
+The CronJob (`k8s-cronjob-europe.yml`) provides:
+- **Scheduled execution**: Runs weekly on Sundays (8th-16th of month) at 1 AM Paris time
+- **Sequential processing**: Downloads and imports all 47 European countries
+- **Checkpoint system**: Resumes from last successful country on failure
+- **Parallel downloads**: Uses 8-part parallel downloads for faster transfers
+- **Resource optimization**: 12GB cache, 3 processes for osm2pgsql
+- **Production-ready**: Includes proper security context, resource limits, and error handling
+
+Required ConfigMaps and Secrets:
+- `osm-sync-secrets`: PostgreSQL connection details (PGHOST, PGPORT, PGDATABASE, PGUSER, PGPASSWORD)
+- `osm-flex-addresses`: ConfigMap containing `osm-flex-addresses.lua` style file
+- `osm-refresh-sql`: ConfigMap containing `refresh_osm_addresses.sql` script
+- `osm-work-pvc`: PersistentVolumeClaim for working directory
+
+Quick deployment example:
 
 ```yaml
 apiVersion: batch/v1
@@ -216,6 +248,85 @@ services:
 
 volumes:
   postgres_data:
+```
+
+## Kubernetes Manifests
+
+The repository includes two Kubernetes manifests:
+
+### 1. k8s-manifest.yml
+
+A complete deployment example with:
+- PostgreSQL/PostGIS StatefulSet with persistent storage
+- One-time Job for OSM data import
+- Secrets and ConfigMaps for configuration
+- Proper security contexts (non-root, capability drops)
+
+Deploy with:
+```bash
+kubectl apply -f k8s-manifest.yml
+```
+
+### 2. k8s-cronjob-europe.yml
+
+Production-grade CronJob for automated European data rebuilds:
+
+**Features:**
+- **Schedule**: Weekly on Sundays (8th-16th) at 1 AM Paris time
+- **Coverage**: All 47 European countries from Geofabrik
+- **Smart Downloads**: Parallel 8-part downloads with range requests
+- **Checkpoint System**: Resumes from last successful country on failure
+- **Resource Limits**: 12Gi memory, 8 CPUs max, with proper requests/limits
+- **Database Schema**: Automatic creation of OSM addresses table with indexes
+- **Security**: Runs as non-root (UID 1000), drops all capabilities, seccomp profile
+
+**Required Resources:**
+```bash
+# Secrets
+kubectl create secret generic osm-sync-secrets \
+  --from-literal=PGHOST=postgres-service \
+  --from-literal=PGPORT=5432 \
+  --from-literal=PGDATABASE=osm \
+  --from-literal=PGUSER=osmuser \
+  --from-literal=PGPASSWORD=your-password
+
+# ConfigMaps (example)
+kubectl create configmap osm-flex-addresses \
+  --from-file=osm-flex-addresses.lua
+
+kubectl create configmap osm-refresh-sql \
+  --from-file=refresh_osm_addresses.sql
+
+# PVC
+kubectl apply -f - <<EOF
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: osm-work-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+EOF
+```
+
+Deploy the CronJob:
+```bash
+kubectl apply -f k8s-cronjob-europe.yml
+```
+
+Monitor the job:
+```bash
+# List CronJobs
+kubectl get cronjobs -n osm
+
+# Watch running jobs
+kubectl get jobs -n osm -w
+
+# View logs
+kubectl logs -n osm -l app.kubernetes.io/name=osm-europe-rebuild --tail=100 -f
 ```
 
 ## License
