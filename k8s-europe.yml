@@ -221,7 +221,8 @@ spec:
                 echo "[dl:$name] HEAD $url"
                 headers="$(curl -sI -L "$url" | tr -d '\r')"
                 size="$(printf "%s\n" "$headers" | awk -F': ' 'tolower($1)=="content-length"{print $2}' | tail -n1)"
-                ranges="$(printf "%s\n" "$headers" | awk -F': ' 'tolower($1)=="accept-ranges"{print tolower($2)}' | tail -n1)"
+                ranges="$(printf "%s\n" "$headers" | \
+                  awk -F': ' 'tolower($1)=="accept-ranges"{print tolower($2)}' | tail -n1)"
                 etag="$(printf "%s\n" "$headers" | awk -F': ' 'tolower($1)=="etag"{print $2}' | tail -n1)"
                 lm="$(printf "%s\n" "$headers" | awk -F': ' 'tolower($1)=="last-modified"{print $2}' | tail -n1)"
 
@@ -286,7 +287,8 @@ spec:
                 echo "[dl:$name] Downloaded: $(ls -lh "$out")"
                 if [ -n "${size:-}" ]; then
                   actual="$(stat -c '%s' "$out" 2>/dev/null || wc -c < "$out")"
-                  [ "$actual" = "$size" ] || { echo "[dl:$name] ERROR: size mismatch expected=$size actual=$actual"; exit 1; }
+                  [ "$actual" = "$size" ] || \
+                    { echo "[dl:$name] ERROR: size mismatch expected=$size actual=$actual"; exit 1; }
                   echo "[dl:$name] Size OK ($actual bytes)."
                 fi
               }

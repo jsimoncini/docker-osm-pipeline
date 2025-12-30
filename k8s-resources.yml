@@ -83,7 +83,8 @@ data:
 
     local function has_addr(tags)
       if not tags then return false end
-      return tags['addr:housenumber'] or tags['addr:street'] or tags['addr:postcode'] or tags['addr:city'] or tags['addr:place']
+      return tags['addr:housenumber'] or tags['addr:street'] or tags['addr:postcode'] or
+             tags['addr:city'] or tags['addr:place']
     end
 
     function osm2pgsql.process_node(object)
@@ -116,7 +117,6 @@ data:
     function osm2pgsql.process_relation(object)
       -- ignored
     end
-    
 ---
 apiVersion: v1
 kind: ConfigMap
