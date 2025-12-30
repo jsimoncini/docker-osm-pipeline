@@ -1,0 +1,160 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-secret
+type: Opaque
+stringData:
+  username: osmuser
+  password: osmpassword
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: osm-pipeline-config
+data:
+  POSTGRES_HOST: "postgres-service"
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: "osm"
+  OSM_DATA_URL: "https://download.geofabrik.de/europe/monaco-latest.osm.pbf"
+  OSM_DATA_FILE: "/data/monaco.osm.pbf"
+  OSM2PGSQL_CACHE: "2048"
+  OSM2PGSQL_NUM_PROCESSES: "4"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-service
+spec:
+  selector:
+    app: postgres
+  ports:
+    - protocol: TCP
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgis/postgis:15-3.3
+        env:
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: osm-pipeline-config
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        ports:
+        - containerPort: 5432
+        volumeMounts:
+        - name: postgres-data
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: postgres-data
+        persistentVolumeClaim:
+          claimName: postgres-pvc
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: osm-import-job
+spec:
+  template:
+    metadata:
+      labels:
+        app: osm-pipeline
+    spec:
+      securityContext:
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+      containers:
+      - name: osm-pipeline
+        image: osm-pipeline:latest
+        command: ["/bin/sh", "-c", "/scripts/run-pipeline.sh"]
+        env:
+        - name: POSTGRES_HOST
+          valueFrom:
+            configMapKeyRef:
+              name: osm-pipeline-config
+              key: POSTGRES_HOST
+        - name: POSTGRES_PORT
+          valueFrom:
+            configMapKeyRef:
+              name: osm-pipeline-config
+              key: POSTGRES_PORT
+        - name: POSTGRES_DB
+          valueFrom:
+            configMapKeyRef:
+              name: osm-pipeline-config
+              key: POSTGRES_DB
+        - name: POSTGRES_USER
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: username
+        - name: POSTGRES_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: postgres-secret
+              key: password
+        - name: OSM_DATA_URL
+          valueFrom:
+            configMapKeyRef:
+              name: osm-pipeline-config
+              key: OSM_DATA_URL
+        - name: OSM_DATA_FILE
+          valueFrom:
+            configMapKeyRef:
+              name: osm-pipeline-config
+              key: OSM_DATA_FILE
+        - name: OSM2PGSQL_CACHE
+          valueFrom:
+            configMapKeyRef:
+              name: osm-pipeline-config
+              key: OSM2PGSQL_CACHE
+        - name: OSM2PGSQL_NUM_PROCESSES
+          valueFrom:
+            configMapKeyRef:
+              name: osm-pipeline-config
+              key: OSM2PGSQL_NUM_PROCESSES
+        volumeMounts:
+        - name: data
+          mountPath: /data
+      restartPolicy: Never
+      volumes:
+      - name: data
+        emptyDir: {}
+  backoffLimit: 3

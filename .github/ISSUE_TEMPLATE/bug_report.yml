@@ -1,0 +1,99 @@
+name: Bug Report
+description: Signaler un bug ou un problème
+title: "[BUG] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de prendre le temps de signaler ce bug !
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description du problème
+      description: Décrivez clairement le problème rencontré
+      placeholder: Décrivez le bug...
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Étapes pour reproduire
+      description: Comment reproduire le problème ?
+      placeholder: |
+        1. Cloner le repo
+        2. Exécuter '...'
+        3. Observer l'erreur
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Comportement attendu
+      description: Quel était le comportement attendu ?
+      placeholder: Je m'attendais à...
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Comportement observé
+      description: Quel comportement avez-vous observé ?
+      placeholder: J'ai observé...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs ou messages d'erreur
+      description: Copiez-collez les logs ou messages d'erreur pertinents
+      render: shell
+      placeholder: |
+        Error: ...
+        Stack trace: ...
+
+  - type: dropdown
+    id: component
+    attributes:
+      label: Composant affecté
+      description: Quel composant est affecté ?
+      options:
+        - Dockerfile
+        - Scripts (download, import)
+        - Kubernetes manifests
+        - Docker Compose
+        - CI/CD
+        - Documentation
+        - Autre
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Quelle version utilisez-vous ?
+      placeholder: v1.0.0 ou commit SHA
+
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environnement
+      description: Informations sur votre environnement
+      placeholder: |
+        - OS: Ubuntu 22.04
+        - Docker: 24.0.5
+        - Kubernetes: 1.28
+        - osm2pgsql: 1.9.2
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Informations additionnelles
+      description: Toute autre information utile
+      placeholder: Contexte supplémentaire...

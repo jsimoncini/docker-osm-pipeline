@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Documentation
+    url: https://github.com/jsimoncini/docker-osm-pipeline/blob/main/README.md
+    about: Consultez la documentation complète du projet
+  - name: Documentation CI/CD
+    url: https://github.com/jsimoncini/docker-osm-pipeline/blob/main/docs/CI.md
+    about: Guide détaillé de la pipeline CI/CD
+  - name: Questions et Support
+    url: https://github.com/jsimoncini/docker-osm-pipeline/discussions
+    about: Posez vos questions dans les Discussions
