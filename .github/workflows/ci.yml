@@ -66,30 +66,32 @@ jobs:
           context: .
           load: true
           tags: osm-pipeline:test
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=${{ github.ref_name }}
+            type=gha,scope=main
+          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}
 
       - name: Test image
         run: |
           echo "Testing image..."
-          
+
           # Check image size
           docker images osm-pipeline:test --format "Size: {{.Size}}"
-          
+
           # Test installed packages
           echo "Checking curl..."
           docker run --rm osm-pipeline:test "which curl"
-          
+
           echo "Checking PostgreSQL client..."
           docker run --rm osm-pipeline:test "which psql"
-          
+
           echo "Checking osm2pgsql..."
           docker run --rm osm-pipeline:test "which osm2pgsql"
-          
+
           # Check user
           echo "Checking user (should be 1000)..."
           docker run --rm osm-pipeline:test "id -u" | grep -q "1000"
-          
+
           echo "✓ All tests passed"
 
       - name: Run vulnerability scan
@@ -154,8 +156,10 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: |
+            type=gha,scope=${{ github.ref_name }}
+            type=gha,scope=main
+          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}
 
       - name: Generate artifact attestation
         uses: actions/attest-build-provenance@v1
