@@ -24,7 +24,7 @@ Pipeline Docker pour le traitement de données OpenStreetMap (OSM) avec osm2pgsq
 
 Ce projet fournit une infrastructure complète pour traiter des données OpenStreetMap :
 
-- **Dockerfile** optimisé basé sur `iboates/osm2pgsql:latest`
+- **Dockerfile** optimisé basé sur `iboates/osm2pgsql:2.2.0` (Alpine Linux)
 - **Scripts** de téléchargement et d'import automatisés
 - **Support Scaleway S3** pour des téléchargements rapides en Europe
 - **Manifests Kubernetes** production-ready avec Job et CronJob
