@@ -12,7 +12,6 @@ DB_USER="${POSTGRES_USER:-osmuser}"
 DB_PASS="${POSTGRES_PASSWORD:-}"
 CACHE="${OSM2PGSQL_CACHE:-2048}"
 PROCS="${OSM2PGSQL_NUM_PROCESSES:-4}"
-STYLE="${OSM2PGSQL_STYLE:-default}"
 
 if [ -z "$OSM_FILE" ]; then
     echo "Error: OSM data file not provided"
