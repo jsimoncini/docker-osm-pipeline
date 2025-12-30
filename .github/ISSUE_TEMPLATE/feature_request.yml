@@ -1,0 +1,78 @@
+name: Feature Request
+description: Proposer une nouvelle fonctionnalité
+title: "[FEATURE] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Merci de proposer une nouvelle fonctionnalité !
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problème à résoudre
+      description: Quel problème cette fonctionnalité résoudrait-elle ?
+      placeholder: |
+        Je rencontre souvent le problème suivant...
+        Il serait utile de pouvoir...
+    validations:
+      required: true
+
+  - type: textarea
+    id: solution
+    attributes:
+      label: Solution proposée
+      description: Décrivez la solution que vous envisagez
+      placeholder: |
+        Je propose d'ajouter...
+        Cela fonctionnerait en...
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considérées
+      description: Avez-vous envisagé d'autres solutions ?
+      placeholder: |
+        J'ai également pensé à...
+        Une autre approche serait...
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priorité
+      description: Quelle est l'importance de cette fonctionnalité pour vous ?
+      options:
+        - Faible - Nice to have
+        - Moyenne - Améliorerait l'expérience
+        - Haute - Bloquant ou très utile
+    validations:
+      required: true
+
+  - type: textarea
+    id: use-case
+    attributes:
+      label: Cas d'usage
+      description: Comment utiliseriez-vous cette fonctionnalité ?
+      placeholder: |
+        Dans mon workflow, je...
+        Cela me permettrait de...
+
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contribution
+      description: Seriez-vous prêt(e) à contribuer ?
+      options:
+        - label: Je peux implémenter cette fonctionnalité
+        - label: Je peux aider à tester cette fonctionnalité
+        - label: Je peux aider à documenter cette fonctionnalité
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Informations additionnelles
+      description: Toute autre information utile
+      placeholder: Contexte supplémentaire...
