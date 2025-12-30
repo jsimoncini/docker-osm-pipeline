@@ -339,9 +339,46 @@ volumes:
 
 ## Kubernetes Manifests
 
-The repository includes three Kubernetes manifests:
+The repository includes four Kubernetes manifests for production deployment:
 
-### 1. k8s-manifest.yml
+### 1. k8s-resources.yml (Required Foundation)
+
+Complete Kubernetes resources including all dependencies:
+
+**Components:**
+- **Namespace**: `osm` namespace for all OSM resources
+- **Secret**: `osm-sync-secrets` with PostgreSQL connection details
+  - Host, port, database, credentials
+  - SSL mode and connection parameters
+  - Keepalive settings for stable connections
+- **PersistentVolumeClaim**: `osm-work-pvc` (100Gi) for working directory
+- **ConfigMap**: `osm-flex-addresses` with Lua style for osm2pgsql
+  - Extracts address data from OSM nodes and ways
+  - Creates `osm_addr_point` and `osm_addr_area` tables
+- **ConfigMap**: `osm-refresh-sql` with SQL refresh script
+  - Consolidates address data into unified table
+  - Generates searchable labels with unaccent support
+
+**First-time setup:**
+```bash
+# Edit the secret with your PostgreSQL credentials
+vim k8s-resources.yml
+
+# Apply the resources
+kubectl apply -f k8s-resources.yml
+```
+
+**Important:** Update the Secret with your actual PostgreSQL credentials before deploying:
+```yaml
+stringData:
+  PGHOST: "your-postgres-host.example.com"
+  PGPORT: "5432"
+  PGDATABASE: "osm"
+  PGUSER: "your-username"
+  PGPASSWORD: "your-secure-password"
+```
+
+### 2. k8s-manifest.yml
 
 A complete deployment example with:
 - PostgreSQL/PostGIS StatefulSet with persistent storage
@@ -354,7 +391,7 @@ Deploy with:
 kubectl apply -f k8s-manifest.yml
 ```
 
-### 2. k8s-europe.yml
+### 3. k8s-europe.yml
 
 One-time Job for manual European data rebuild (all 47 countries):
 
@@ -386,7 +423,7 @@ kubectl get job osm-europe-rebuild -n osm -w
 kubectl logs -n osm -l app.kubernetes.io/name=osm-europe-rebuild -f --tail=100
 ```
 
-### 3. k8s-cronjob-europe.yml
+### 4. k8s-cronjob-europe.yml
 
 Production-grade CronJob for automated European data rebuilds:
 
@@ -399,36 +436,16 @@ Production-grade CronJob for automated European data rebuilds:
 - **Database Schema**: Automatic creation of OSM addresses table with indexes
 - **Security**: Runs as non-root (UID 1000), drops all capabilities, seccomp profile
 
-**Required Resources:**
+**Prerequisites:**
+
+All required resources are defined in `k8s-resources.yml`. Simply apply it first:
+
 ```bash
-# Secrets
-kubectl create secret generic osm-sync-secrets \
-  --from-literal=PGHOST=postgres-service \
-  --from-literal=PGPORT=5432 \
-  --from-literal=PGDATABASE=osm \
-  --from-literal=PGUSER=osmuser \
-  --from-literal=PGPASSWORD=your-password
+# Edit with your PostgreSQL credentials
+vim k8s-resources.yml
 
-# ConfigMaps (example)
-kubectl create configmap osm-flex-addresses \
-  --from-file=osm-flex-addresses.lua
-
-kubectl create configmap osm-refresh-sql \
-  --from-file=refresh_osm_addresses.sql
-
-# PVC
-kubectl apply -f - <<EOF
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: osm-work-pvc
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 100Gi
-EOF
+# Apply all resources (namespace, secrets, PVC, ConfigMaps)
+kubectl apply -f k8s-resources.yml
 ```
 
 Deploy the CronJob:
@@ -446,6 +463,86 @@ kubectl get jobs -n osm -w
 
 # View logs
 kubectl logs -n osm -l app.kubernetes.io/name=osm-europe-rebuild --tail=100 -f
+```
+
+## Complete Kubernetes Deployment Guide
+
+### Step-by-Step Production Setup
+
+1. **Prepare your PostgreSQL database**
+   - Ensure PostGIS extension is available
+   - Create database and user with appropriate permissions
+
+2. **Deploy base resources**
+   ```bash
+   # Edit k8s-resources.yml with your PostgreSQL credentials
+   vim k8s-resources.yml
+   
+   # Apply: creates namespace, secrets, PVC, and ConfigMaps
+   kubectl apply -f k8s-resources.yml
+   ```
+
+3. **Verify resources**
+   ```bash
+   # Check namespace
+   kubectl get namespace osm
+   
+   # Check secret
+   kubectl get secret osm-sync-secrets -n osm
+   
+   # Check PVC
+   kubectl get pvc osm-work-pvc -n osm
+   
+   # Check ConfigMaps
+   kubectl get configmap -n osm
+   ```
+
+4. **Test with a manual Job**
+   ```bash
+   # Deploy one-time Europe rebuild job
+   kubectl apply -f k8s-europe.yml
+   
+   # Monitor progress
+   kubectl logs -n osm -l app.kubernetes.io/name=osm-europe-rebuild -f
+   ```
+
+5. **Enable automated rebuilds (optional)**
+   ```bash
+   # Deploy CronJob for weekly automatic rebuilds
+   kubectl apply -f k8s-cronjob-europe.yml
+   ```
+
+### Troubleshooting
+
+**Check Job status:**
+```bash
+kubectl get jobs -n osm
+kubectl describe job osm-europe-rebuild -n osm
+```
+
+**View Pod logs:**
+```bash
+# Get pod name
+kubectl get pods -n osm
+
+# View logs
+kubectl logs -n osm <pod-name> -c europe-sequential-runner -f
+```
+
+**Check PostgreSQL connection:**
+```bash
+# Test connection from a debug pod
+kubectl run -n osm psql-test --rm -it --image=postgres:15 -- \
+  psql -h <PGHOST> -U <PGUSER> -d <PGDATABASE>
+```
+
+**Cleanup failed jobs:**
+```bash
+# Delete failed job to retry
+kubectl delete job osm-europe-rebuild -n osm
+
+# Reapply
+kubectl apply -f k8s-europe.yml
 ```
 
 ## License

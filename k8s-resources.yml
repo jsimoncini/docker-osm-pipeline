@@ -1,0 +1,198 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: osm
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: osm-sync-secrets
+  namespace: osm
+type: Opaque
+stringData:
+  # Postgres managé (DOIT supporter PostGIS si tu utilises osm2pgsql comme ci-dessous)
+  PGHOST: "xx.xx.xx.xx"
+  PGPORT: "xxxx"
+  PGDATABASE: "osm"
+  PGUSER: "osm"
+  PGPASSWORD: "xxxx"
+  PGSSLMODE: "require"
+  PGCONNECT_TIMEOUT: "10"
+  PGKEEPALIVES: "1"
+  PGKEEPALIVES_IDLE: "30"
+  PGKEEPALIVES_INTERVAL: "10"
+  PGKEEPALIVES_COUNT: "6"
+  PGAPPNAME: "osm2pgsql-import"
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: osm-work-pvc
+  namespace: osm
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 100Gi
+  storageClassName: sbs-5k
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: osm-flex-addresses
+  namespace: osm
+data:
+  osm-flex-addresses.lua: |
+    -- Flex style compatible osm2pgsql 2.2.x
+    local schema = 'osm'
+
+    local addr_point = osm2pgsql.define_table{
+      name = 'osm_addr_point',
+      schema = schema,
+      ids = { type = 'node', id_column = 'osm_id' },
+      columns = {
+        -- osm_id est déjà créé par "ids", ne pas le redéclarer ici
+        { column = 'housenumber', type = 'text' },
+        { column = 'street', type = 'text' },
+        { column = 'unit', type = 'text' },
+        { column = 'city', type = 'text' },
+        { column = 'postcode', type = 'text' },
+        { column = 'place', type = 'text' },
+        { column = 'geom', type = 'point', projection = 4326, not_null = true },
+      }
+    }
+
+    local addr_area = osm2pgsql.define_table{
+      name = 'osm_addr_area',
+      schema = schema,
+      ids = { type = 'way', id_column = 'osm_id' },
+      columns = {
+        -- osm_id est déjà créé par "ids"
+        { column = 'housenumber', type = 'text' },
+        { column = 'street', type = 'text' },
+        { column = 'unit', type = 'text' },
+        { column = 'city', type = 'text' },
+        { column = 'postcode', type = 'text' },
+        { column = 'place', type = 'text' },
+        { column = 'geom', type = 'multipolygon', projection = 4326, not_null = true },
+      }
+    }
+
+    local function has_addr(tags)
+      if not tags then return false end
+      return tags['addr:housenumber'] or tags['addr:street'] or tags['addr:postcode'] or tags['addr:city'] or tags['addr:place']
+    end
+
+    function osm2pgsql.process_node(object)
+      if not has_addr(object.tags) then return end
+      addr_point:insert{
+        osm_id      = object.id,
+        housenumber = object.tags['addr:housenumber'],
+        street      = object.tags['addr:street'],
+        unit        = object.tags['addr:unit'],
+        city        = object.tags['addr:city'],
+        postcode    = object.tags['addr:postcode'],
+        place       = object.tags['addr:place'],
+        geom        = object:as_point()
+      }
+    end
+
+    function osm2pgsql.process_way(object)
+      if not has_addr(object.tags) then return end
+      if not object.is_closed then return end
+      addr_area:insert{
+        osm_id      = object.id,
+        housenumber = object.tags['addr:housenumber'],
+        street      = object.tags['addr:street'],
+        unit        = object.tags['addr:unit'],
+        city        = object.tags['addr:city'],
+        postcode    = object.tags['addr:postcode'],
+        place       = object.tags['addr:place'],
+        geom        = object:as_multipolygon()
+      }
+    end
+
+    function osm2pgsql.process_relation(object)
+      -- ignored
+    end
+    
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: osm-refresh-sql
+  namespace: osm
+data:
+  refresh_osm_addresses.sql: |
+    BEGIN;
+
+    TRUNCATE TABLE osm.osm_addresses;
+
+    INSERT INTO osm.osm_addresses (
+      dataset, osm_type, osm_id,
+      house_number, street, unit, city, postcode, place,
+      lon, lat,
+      created_at, updated_at
+    )
+    SELECT
+      :'dataset' AS dataset,
+      'n' AS osm_type,
+      p.osm_id,
+      p.housenumber, p.street, p.unit, p.city, p.postcode, p.place,
+      ST_X(p.geom) AS lon,
+      ST_Y(p.geom) AS lat,
+      NOW(), NOW()
+    FROM osm.osm_addr_point p;
+
+    INSERT INTO osm.osm_addresses (
+      dataset, osm_type, osm_id,
+      house_number, street, unit, city, postcode, place,
+      lon, lat,
+      created_at, updated_at
+    )
+    SELECT
+      :'dataset' AS dataset,
+      'w' AS osm_type,
+      a.osm_id,
+      a.housenumber, a.street, a.unit, a.city, a.postcode, a.place,
+      ST_X(ST_PointOnSurface(a.geom)) AS lon,
+      ST_Y(ST_PointOnSurface(a.geom)) AS lat,
+      NOW(), NOW()
+    FROM osm.osm_addr_area a;
+
+    UPDATE osm.osm_addresses
+    SET
+      label = trim(
+        concat_ws(' ',
+          NULLIF(house_number,''),
+          NULLIF(street,''),
+          CASE WHEN unit IS NOT NULL AND unit <> '' THEN '(' || unit || ')' END,
+          NULLIF(postcode,''),
+          NULLIF(city,''),
+          NULLIF(place,'')
+        )
+      ),
+      label_search = trim(
+        regexp_replace(
+          lower(unaccent(
+            concat_ws(' ',
+              NULLIF(house_number,''),
+              NULLIF(street,''),
+              NULLIF(unit,''),
+              NULLIF(postcode,''),
+              NULLIF(city,''),
+              NULLIF(place,'')
+            )
+          )),
+          '\s+',
+          ' ',
+          'g'
+        )
+      );
+
+    COMMIT;
+
+---
